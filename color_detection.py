@@ -82,22 +82,63 @@ def hsv_to_rgb(hsv_color):
     return rgb_color
 
 
-mode = 'capture'
+def adjust_brightness_contrast(image, brightness=0, contrast=0):
+    brightness = int((brightness - 50) * 2.55)  # Convert scale from 0-100 to -255 to 255
+    contrast = int((contrast - 50) * 2.55)  # Convert scale from 0-100 to -255 to 255
+
+    B = np.clip(brightness, -255, 255)
+    C = np.clip(contrast, -255, 255)
+
+    if B != 0:
+        if B > 0:
+            shadow = B
+            highlight = 255
+        else:
+            shadow = 0
+            highlight = 255 + B
+        alpha_b = (highlight - shadow) / 255
+        gamma_b = shadow
+        image = cv2.addWeighted(image, alpha_b, image, 0, gamma_b)
+
+    if C != 0:
+        f = 131 * (C + 127) / (127 * (131 - C))
+        alpha_c = f
+        gamma_c = 127 * (1 - f)
+        image = cv2.addWeighted(image, alpha_c, image, 0, gamma_c)
+
+    return image
+
+
+def adjust_gamma(image, gamma=1.0):
+    inv_gamma = 1.0 / gamma
+    table = np.array([(i / 255.0) ** inv_gamma * 255 for i in np.arange(256)]).astype("uint8")
+    return cv2.LUT(image, table)
+
+
+mode = 'track'
 center = (320, 240)
 radius = 10
+
+# Adjusted color ranges to include lighter versions
 colors = [
-    (np.array([0, 100, 100]), np.array([10, 255, 255]), 'Red fruit'),
-    (np.array([35, 100, 100]), np.array([85, 255, 255]), 'Green fruit'),
-    (np.array([25, 100, 100]), np.array([35, 255, 255]), 'Yellow fruit')
+    (np.array([0, 50, 50]), np.array([10, 255, 255]), 'Red fruit'),
+    (np.array([35, 50, 50]), np.array([85, 255, 255]), 'Green fruit'),
+    (np.array([25, 50, 50]), np.array([35, 255, 255]), 'Yellow fruit')
 ]
 
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(1)
+brightness = 50
+contrast = 50
+gamma = 1.0
 
 while True:
     ret, frame = cap.read()
 
     if not ret:
         break
+
+    frame = adjust_brightness_contrast(frame, brightness, contrast)
+    frame = adjust_gamma(frame, gamma)
 
     if mode == 'capture':
         cv2.circle(frame, center, radius, (255, 0, 0), 2)
@@ -120,15 +161,37 @@ while True:
             mean_position, mask = mean_position_of_color(frame, lower_bound, upper_bound)
             if mean_position:
                 bounding_box = find_bounding_box(mask, mean_position)
-                color = mean_color(lower_bound, upper_bound)
-                frame = draw_bounding_box(frame, bounding_box, color, label)
+                left, top, right, bottom = bounding_box
+                if right - left >= 10 and bottom - top >= 10:  # Check bounding box size
+                    color = mean_color(lower_bound, upper_bound)
+                    frame = draw_bounding_box(frame, bounding_box, color, label)
+
+    # Display brightness, contrast, and gamma values
+    text = f"Brightness: {brightness}  Contrast: {contrast}  Gamma: {gamma:.1f}"
+    cv2.putText(frame, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
     cv2.imshow('Frame', frame)
 
-    if cv2.waitKey(1) & 0xFF == ord('q'):
+    key = cv2.waitKey(1) & 0xFF
+    if key == ord('x'):
         break
-    elif cv2.waitKey(1) & 0xFF == ord('t'):
+    elif key == ord('t'):
         mode = 'track'
+    elif key == ord('c'):
+        mode = 'capture'
+    elif key == ord('w'):
+        brightness = min(brightness + 1, 100)
+    elif key == ord('s'):
+        brightness = max(brightness - 1, 0)
+    elif key == ord('d'):
+        contrast = min(contrast + 1, 100)
+    elif key == ord('a'):
+        contrast = max(contrast - 1, 0)
+    elif key == ord('e'):
+        gamma = min(gamma + 0.1, 3.0)
+    elif key == ord('q'):
+        gamma = max(gamma - 0.1, 0.1)
 
 cap.release()
 cv2.destroyAllWindows()
+q
